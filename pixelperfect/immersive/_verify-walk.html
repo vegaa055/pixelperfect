@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit navigation harness</title>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<pre id="out">running…</pre>
+<script type="module">
+/* Simulates walking the hall to prove a visitor can reach every wing and
+   cannot pass through anything solid. Pure logic — no rendering required.
+   Cache-bust the modules so a re-run never tests a stale build. */
+const V = '?v=' + Date.now();
+const [{ buildHall }, { Walker }, { sectionAt }, CFG, THREE] = await Promise.all([
+	import('./js/architecture.js' + V),
+	import('./js/controls.js' + V),
+	import('./js/ui.js' + V),
+	import('./js/config.js' + V),
+	import('three'),
+]);
+const { HALL, SECTIONS, PARTITIONS } = CFG;
+
+const R = { steps: [], checks: [], ok: true };
+const note = s => R.steps.push(s);
+
+try {
+	const { colliders } = buildHall();
+	const camera = new THREE.PerspectiveCamera(62, 1.6, 0.1, 260);
+	const walker = new Walker(camera, document.body, colliders, { reduced: true });
+	walker.controls.isLocked = true;              // pretend the visitor has control
+
+	const face = yaw => camera.quaternion.setFromEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
+	const pos  = () => `x=${camera.position.x.toFixed(1)} z=${camera.position.z.toFixed(1)}`;
+	const run  = (sec, f = 1, r = 0) => {
+		walker.input.f = f; walker.input.r = r;
+		for (let i = 0; i < Math.round(sec * 60); i++) walker.update(1 / 60);
+		walker.input.f = 0; walker.input.r = 0;
+		walker.velocity.set(0, 0, 0);              // settle between manoeuvres
+	};
+
+	/* Walk toward a point, the way a visitor heads for something they can see.
+	   Returns true if we got there. */
+	function walkTo(tx, tz, maxSec = 20) {
+		for (let i = 0; i < maxSec * 60; i++) {
+			const dx = tx - camera.position.x, dz = tz - camera.position.z;
+			if (Math.hypot(dx, dz) < 1.0) { walker.velocity.set(0, 0, 0); return true; }
+			face(Math.atan2(dx, dz) + Math.PI);      // look at the target
+			walker.input.f = 1; walker.input.r = 0;
+			walker.update(1 / 60);
+		}
+		walker.velocity.set(0, 0, 0);
+		return false;
+	}
+
+	// --- 1. is the intended route through the exhibit walkable? ---
+	camera.position.set(0, 1.68, 4);
+	const route = [
+		[0, -20,  'into the Gallery wing'],
+		[0, -31,  'up to the first archway'],
+		[0, -40,  'through into Portfolio'],
+		[5.2, -49, 'around the feature wall'],
+		[0, -58,  'back to the centre'],
+		[0, -63,  'up to the second archway'],
+		[0, -75,  'through into the Journal'],
+		[0, -92,  'to the finale'],
+	];
+	const visited = new Set();
+	let stuckAt = null;
+	for (const [x, z, label] of route) {
+		if (!walkTo(x, z)) { stuckAt = label + ` (stopped ${pos()})`; break; }
+		const sec = sectionAt(camera.position.z);
+		if (sec) visited.add(sec.id);
+	}
+	note(stuckAt ? `ROUTE BLOCKED ${stuckAt}` : `walked the full route, ending ${pos()}`);
+	note(`wings seen: ${[...visited].join(', ') || 'none'}`);
+	R.checks.push(['intended route is walkable end to end', !stuckAt]);
+	R.checks.push(['reaches the finale', camera.position.z < HALL.zEnd + 6]);
+	R.checks.push(['all three wings reachable', visited.size === 3]);
+
+	// --- 2. partition pier is solid (walking at a pier, off to the side) ---
+	const pz = PARTITIONS[0];
+	camera.position.set(6.5, 1.68, pz + 3); face(0); run(8);
+	note(`pushed into pier at z=${pz}: stopped at ${pos()}`);
+	R.checks.push(['partition pier blocks', camera.position.z > pz - 0.2]);
+
+	// --- 3. the archway lets you through ---
+	camera.position.set(0, 1.68, pz + 3); face(0); run(6);
+	note(`through archway at z=${pz}: ${pos()}`);
+	R.checks.push(['archway is passable', camera.position.z < pz - 1]);
+
+	// --- 4. the bench is solid, at the spot it actually occupies ---
+	const bz = (SECTIONS[0].zStart + SECTIONS[0].zEnd) / 2;
+	camera.position.set(-3.4, 1.68, bz + 4); face(0); run(6);
+	note(`walked at the bench (x=-3.4, z=${bz}): stopped at ${pos()}`);
+	R.checks.push(['bench is solid', camera.position.z > bz + 1.4]);
+
+	// --- 5. the central aisle is clear past that bench ---
+	camera.position.set(0, 1.68, bz + 4); face(0); run(6);
+	note(`same run down the centre aisle: ${pos()}`);
+	R.checks.push(['centre aisle clear of benches', camera.position.z < bz - 1]);
+
+	// --- 6. never escapes the building ---
+	let escaped = false;
+	camera.position.set(0, 1.68, -20);
+	for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2, 0.7, -2.2, 2.9]) {
+		face(yaw); run(12);
+		const p = camera.position;
+		if (Math.abs(p.x) > HALL.halfWidth || p.z > HALL.zEntrance || p.z < HALL.zEnd) escaped = true;
+	}
+	note(`after shoving every wall: ${pos()}`);
+	R.checks.push(['stays inside the hall', !escaped]);
+
+	R.ok = R.checks.every(([, ok]) => ok);
+	R.checks = R.checks.map(([n, ok]) => `${ok ? 'PASS' : 'FAIL'}  ${n}`);
+} catch (err) {
+	R.ok = false;
+	R.error = err && (err.stack || err.message || String(err));
+}
+
+document.getElementById('out').textContent = JSON.stringify(R, null, 2);
+window.__walk = R;
+</script>
+</body>
+</html>

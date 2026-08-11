@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<title>The Exhibit — Pixel Perfect</title>
+	<meta name="description" content="Walk through the Pixel Perfect collection as a three-dimensional gallery hall — photography, illustration and the studio journal, lit by afternoon light.">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="css/immersive.css">
+	<link rel="icon" href="../img/logo-small.png">
+
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "./vendor/three/three.module.js",
+			"three/addons/": "./vendor/three/addons/"
+		}
+	}
+	</script>
+</head>
+<body>
+
+	<canvas id="scene"></canvas>
+
+	<!-- ============ LOADING ============ -->
+	<div id="loader">
+		<span class="load-kicker">Pixel Perfect presents</span>
+		<h1 class="load-brand">The Exhibit<span class="dot">.</span></h1>
+		<p id="load-sub">A hall of three wings — photography, illustration and the studio journal — lit by the afternoon coming through the west windows.</p>
+		<div class="load-track"><div id="load-bar"></div></div>
+		<span id="load-pct">0%</span>
+		<button id="enter-btn" disabled>Enter the hall</button>
+		<p class="load-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk &middot; mouse to look &middot; <kbd>E</kbd> to read a piece</p>
+	</div>
+
+	<!-- ============ HUD ============ -->
+	<div id="hud">
+		<div class="hud-top">
+			<span class="hud-brand">Pixel<span class="dot">.</span>Perfect</span>
+			<a class="hud-exit" href="../index.html">&larr; Classic site</a>
+		</div>
+
+		<div class="hud-where">
+			<div id="hud-section">The Hall</div>
+			<div id="hud-sub">Pixel Perfect</div>
+		</div>
+
+		<ul id="rail"></ul>
+
+		<div id="crosshair"></div>
+		<div id="prompt"></div>
+
+		<button id="help-toggle" aria-label="Controls">?</button>
+		<div id="help">
+			<div><b>W A S D</b> &nbsp;walk</div>
+			<div><b>Mouse</b> &nbsp;look around</div>
+			<div><kbd>Shift</kbd> &nbsp;walk faster</div>
+			<div><kbd>E</kbd> &nbsp;read the piece ahead</div>
+			<div><kbd>Esc</kbd> &nbsp;release the cursor</div>
+		</div>
+	</div>
+
+	<!-- ============ INFO PANEL ============ -->
+	<aside id="panel">
+		<button id="panel-close" aria-label="Close">
+			<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+		</button>
+		<span id="panel-cat"></span>
+		<h2 id="panel-title"></h2>
+		<span id="panel-year"></span>
+		<img id="panel-thumb" src="" alt="">
+		<p id="panel-text"></p>
+		<button id="panel-full">View full size</button>
+	</aside>
+
+	<!-- ============ FULL VIEWER ============ -->
+	<div id="viewer">
+		<button id="viewer-close" aria-label="Close">
+			<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+		</button>
+		<img id="viewer-img" src="" alt="">
+		<div id="viewer-cap"></div>
+	</div>
+
+	<!-- ============ NO WEBGL ============ -->
+	<div id="nowebgl">
+		<h1>This exhibit needs WebGL</h1>
+		<p>Your browser or device could not start a 3D context. The full collection is also available as a traditional site.</p>
+		<a href="../index.html">Visit the classic site &rarr;</a>
+	</div>
+
+	<script type="module" src="js/main.js"></script>
+</body>
+</html>

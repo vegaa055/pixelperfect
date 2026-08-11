@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Gallery — Pixel Perfect</title>
+	<meta name="description" content="The Pixel Perfect photography gallery — black-and-white and colour fine-art photography.">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="css/style.css">
+	<link rel="icon" href="img/logo-small.png">
+</head>
+<body>
+
+	<!-- HEADER -->
+	<header class="site-header on-light">
+		<a href="index.html" class="brand">Pixel<span class="dot">.</span>Perfect</a>
+		<nav class="nav">
+			<a href="index.html#work">Work</a>
+			<a href="gallery.html" class="active">Gallery</a>
+			<a href="portfolio.html">Portfolio</a>
+			<a href="blog.html">Journal</a>
+			<a href="immersive/index.html" class="nav-3d">Exhibit <span class="tag3d">3D</span></a>
+			<a href="index.html#about">About</a>
+		</nav>
+		<a href="index.html#contact" class="btn btn-solid nav-cta">Commission <span class="arw">&rarr;</span></a>
+		<button class="burger" aria-label="Menu"><span></span><span></span><span></span></button>
+	</header>
+	<div class="mobile-nav">
+		<a href="index.html#work">Work</a>
+		<a href="gallery.html">Gallery</a>
+		<a href="portfolio.html">Portfolio</a>
+		<a href="blog.html">Journal</a>
+		<a href="immersive/index.html">Exhibit <span class="tag3d">3D</span></a>
+		<a href="index.html#about">About</a>
+		<a href="index.html#contact">Contact</a>
+	</div>
+
+	<!-- PAGE HEAD -->
+	<section class="page-head">
+		<div class="container">
+			<span class="eyebrow">Gallery</span>
+			<h1>Photography</h1>
+			<p class="lead">Frames caught in the field — grain, contrast and the quiet drama of light. Click any image to open the viewer, then use the arrows or your keyboard to move through.</p>
+		</div>
+	</section>
+
+	<!-- GALLERY GRID -->
+	<section class="container" style="padding-bottom:clamp(4.5rem,11vw,9rem)">
+		<div class="masonry">
+			<div class="item reveal" data-lightbox data-full="img/gallery/30.jpg" data-caption="Like the legend of the Phoenix">
+				<img src="img/gallery/30.jpg" alt="Photograph — the trumpet"></div>
+			<div class="item reveal d1" data-lightbox data-full="img/gallery/2.jpg" data-caption="All ends with beginnings">
+				<img src="img/gallery/2.jpg" alt="Photograph — Thunderbird"></div>
+			<div class="item reveal d2" data-lightbox data-full="img/gallery/1.jpg" data-caption="First light">
+				<img src="img/gallery/1.jpg" alt="Photograph"></div>
+			<div class="item reveal d1" data-lightbox data-full="img/gallery/5.jpg" data-caption="Follow through">
+				<img src="img/gallery/5.jpg" alt="Photograph"></div>
+			<div class="item reveal d2" data-lightbox data-full="img/gallery/7.jpg" data-caption="Held breath">
+				<img src="img/gallery/7.jpg" alt="Photograph"></div>
+			<div class="item reveal" data-lightbox data-full="img/gallery/8.jpg" data-caption="Quiet study">
+				<img src="img/gallery/8.jpg" alt="Photograph"></div>
+			<div class="item reveal d1" data-lightbox data-full="img/gallery/32.jpg" data-caption="Nightfall">
+				<img src="img/gallery/32.jpg" alt="Photograph"></div>
+			<div class="item reveal d2" data-lightbox data-full="img/gallery/36.jpg" data-caption="Afterglow">
+				<img src="img/gallery/36.jpg" alt="Photograph"></div>
+			<div class="item reveal" data-lightbox data-full="img/gallery/12.jpg" data-caption="Threshold">
+				<img src="img/gallery/12.jpg" alt="Photograph"></div>
+			<div class="item reveal d1" data-lightbox data-full="img/gallery/15.jpg" data-caption="Fear and panic in the air">
+				<img src="img/gallery/15.jpg" alt="Photograph"></div>
+		</div>
+	</section>
+
+	<!-- FOOTER -->
+	<footer class="site-footer">
+		<div class="container">
+			<div class="footer-top">
+				<div class="footer-brand">
+					<a href="index.html" class="brand" style="color:var(--paper)">Pixel<span class="dot">.</span>Perfect</a>
+					<p>A fine-art photography and illustration studio in CyberApolis. Composed pixel-perfect, made to be lived with.</p>
+				</div>
+				<div class="footer-col">
+					<h5>Explore</h5>
+					<a href="portfolio.html">Portfolio</a>
+					<a href="gallery.html">Gallery</a>
+					<a href="blog.html">Journal</a>
+		<a href="immersive/index.html">3D Exhibit</a>
+		<a href="index.html#about">About</a>
+				</div>
+				<div class="footer-col">
+					<h5>Connect</h5>
+					<a href="index.html#contact">Contact</a>
+					<a href="#">Facebook</a>
+					<a href="#">Instagram</a>
+					<a href="#">500px</a>
+				</div>
+			</div>
+			<div class="footer-bottom">
+				<span>&copy; <span id="year">2026</span> Pixel Perfect &middot; University of Arizona</span>
+				<span>Made with an eye for the in-between.</span>
+			</div>
+		</div>
+	</footer>
+
+	<!-- LIGHTBOX -->
+	<div class="lightbox" id="lightbox">
+		<button class="lb-close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+		<button class="lb-prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg></button>
+		<button class="lb-next" aria-label="Next"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></button>
+		<img src="" alt="">
+		<div class="lb-caption"></div>
+	</div>
+
+	<script src="js/site.js"></script>
+</body>
+</html>

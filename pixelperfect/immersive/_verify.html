@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit verification harness</title>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="c" width="900" height="560"></canvas>
+<pre id="out">running…</pre>
+
+<script type="module">
+/* Headless check: renders the real exhibit modules offscreen and reads the
+   framebuffer back. Works without compositing, so it validates the custom
+   GLSL (shafts + dust), the scene graph and the texture pipeline. */
+import * as THREE from 'three';
+import { buildHall }                    from './js/architecture.js';
+import { hangExhibit, loadTextures }    from './js/artwork.js';
+import { createLightShafts, createDust, createFloorPools } from './js/atmosphere.js';
+import { HALL, PALETTE, SECTIONS }      from './js/config.js';
+
+const shaderErrors = [];
+const origErr = console.error;
+console.error = (...a) => { shaderErrors.push(a.map(String).join(' ')); origErr(...a); };
+
+const result = { steps: [], ok: true };
+const note = (k, v) => result.steps.push(`${k}: ${v}`);
+const fmt = s => `mean ${s.mean}  sd ${s.sd}  p50 ${s.p50}  p99 ${s.p99}  max ${s.max}  colors ${s.unique}  lit ${(s.nonBlack*100).toFixed(0)}%`;
+
+try {
+	const canvas = document.getElementById('c');
+	const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+	renderer.setSize(900, 560, false);
+	renderer.outputColorSpace = THREE.SRGBColorSpace;
+	renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+	const scene = new THREE.Scene();
+	scene.background = new THREE.Color(0x0d0b09);
+	scene.fog = new THREE.Fog(0x1a1611, 26, 92);
+	scene.add(new THREE.HemisphereLight(0xcfe0f2, 0x3a3229, 0.55));
+	scene.add(new THREE.AmbientLight(0xfff0dc, 0.28));
+	const sun = new THREE.DirectionalLight(PALETTE.sun, 2.1);
+	sun.position.set(-40, 34, 10);
+	scene.add(sun);
+
+	// mirror main.js: the fill light that rides with the visitor…
+	const lantern = new THREE.PointLight(0xffe9cc, 12, 16, 2);
+	scene.add(lantern);
+	// …and the dedicated picture light on the closing piece
+	const finaleSpot = new THREE.SpotLight(0xffe8cc, 90, 18, Math.PI / 7, 0.55, 1.6);
+	finaleSpot.position.set(0, 6.4, HALL.zEnd + 5.2);
+	finaleSpot.target.position.set(0, 3.0, HALL.zEnd);
+	scene.add(finaleSpot, finaleSpot.target);
+
+	const camera = new THREE.PerspectiveCamera(62, 900 / 560, 0.1, 260);
+	const place = (px, py, pz, tx, ty, tz) => {
+		camera.position.set(px, py, pz);
+		camera.lookAt(tx, ty, tz);
+		lantern.position.set(px, py + 0.4, pz);   // the fill follows the camera
+	};
+
+	const { group: hall, colliders } = buildHall();
+	scene.add(hall);
+	note('hall meshes', countMeshes(hall));
+	note('colliders', colliders.length);
+
+	const shafts = createLightShafts();
+	scene.add(shafts);
+	const shaftTris = shafts.children[0].geometry.getAttribute('position').count / 3;
+	note('shaft triangles', shaftTris);
+
+	const dust = createDust(3000);
+	scene.add(dust);
+	note('dust particles', dust.geometry.getAttribute('position').count);
+
+	scene.add(createFloorPools());
+
+	const textures = await loadTextures(() => {});
+	note('textures loaded', textures.size);
+
+	const { group: art, pickables } = hangExhibit(textures);
+	scene.add(art);
+	note('artwork meshes', countMeshes(art));
+	note('pickables', pickables.length);
+
+	// ---- render probes ----
+	const rt = new THREE.WebGLRenderTarget(900, 560);
+
+	// A: standing at the entrance, looking down the hall
+	place(0, 1.68, 4,   0, 2.4, -30);
+	const a = probe(renderer, scene, camera, rt);
+	note('A entrance  ', fmt(a));
+
+	// B: facing the window wall where a beam lands
+	place(2.5, 1.68, -14,  -9, 3.5, -14);
+	const b = probe(renderer, scene, camera, rt);
+	note('B beam      ', fmt(b));
+
+	// C: close on the right-hand art wall
+	place(4, 2.2, -12,   9, 2.45, -12);
+	const c = probe(renderer, scene, camera, rt);
+	note('C art wall  ', fmt(c));
+
+	// D: the finale at the end of the hall
+	place(0, 2.2, -90,   0, 3.0, -96);
+	const d = probe(renderer, scene, camera, rt);
+	note('D finale    ', fmt(d));
+
+	// ---- assertions ----
+	const checks = [];
+	checks.push(['no shader/link errors', shaderErrors.filter(s => /shader|program|glsl/i.test(s)).length === 0]);
+	checks.push(['all textures decoded', textures.size >= 19]);
+	checks.push(['hall built',            countMeshes(hall) > 40]);
+	checks.push(['art hung',              pickables.length >= 24]);
+	checks.push(['entrance renders',      a.unique > 500 && a.mean > 6]);
+	checks.push(['beam is brighter',      b.p99 > a.p50]);
+	checks.push(['art wall renders',      c.unique > 500 && c.mean > 10]);
+	checks.push(['finale renders',        d.sd > 20 && d.mean > 6]);   // monochrome print: judge structure, not colour count
+	checks.push(['nothing all-black',     [a,b,c,d].every(x => x.nonBlack > 0.5)]);
+
+	result.checks = checks.map(([n, ok]) => `${ok ? 'PASS' : 'FAIL'}  ${n}`);
+	result.ok = checks.every(([, ok]) => ok);
+	if (shaderErrors.length) result.shaderErrors = shaderErrors.slice(0, 5);
+
+} catch (err) {
+	result.ok = false;
+	result.error = err && (err.stack || err.message || String(err));
+}
+
+function countMeshes(root) { let n = 0; root.traverse(o => { if (o.isMesh || o.isPoints) n++; }); return n; }
+
+function probe(renderer, scene, camera, rt) {
+	renderer.setRenderTarget(rt);
+	renderer.render(scene, camera);
+	const buf = new Uint8Array(900 * 560 * 4);
+	renderer.readRenderTargetPixels(rt, 0, 0, 900, 560, buf);
+	renderer.setRenderTarget(null);
+
+	const lum = [];
+	const seen = new Set();
+	let sum = 0, nonBlack = 0;
+	for (let i = 0; i < buf.length; i += 4 * 7) {           // sample every 7th pixel
+		const r = buf[i], g = buf[i + 1], b = buf[i + 2];
+		const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+		lum.push(l); sum += l;
+		if (l > 8) nonBlack++;
+		seen.add((r >> 3) << 10 | (g >> 3) << 5 | (b >> 3));
+	}
+	lum.sort((x, y) => x - y);
+	const mean = sum / lum.length;
+	// standard deviation tells us the view has real structure, not a flat fill
+	const sd = Math.sqrt(lum.reduce((a, l) => a + (l - mean) * (l - mean), 0) / lum.length);
+	return {
+		sd: +sd.toFixed(1),
+		mean: +(sum / lum.length).toFixed(1),
+		p50: +lum[Math.floor(lum.length * 0.5)].toFixed(1),
+		p99: +lum[Math.floor(lum.length * 0.99)].toFixed(1),
+		max: +lum[lum.length - 1].toFixed(1),
+		unique: seen.size,
+		nonBlack: +(nonBlack / lum.length).toFixed(3),
+	};
+}
+document.getElementById('out').textContent = JSON.stringify(result, null, 2);
+window.__verify = result;
+</script>
+</body>
+</html>
