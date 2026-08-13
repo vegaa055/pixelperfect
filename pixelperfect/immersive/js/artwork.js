@@ -1,9 +1,8 @@
 /* ============================================================
-   Hanging the show — frames, plaques, picture-light glow and
-   a soft floor reflection under each piece.
+   Hanging the show — frames, plaques and picture-light glow.
    ============================================================ */
 import * as THREE from 'three';
-import { HALL, SECTIONS, PALETTE } from './config.js';
+import { HALL, SECTIONS, PALETTE, WINDOWS, windowZ } from './config.js';
 import { ARTWORKS, FINALE } from './exhibit-data.js';
 import { plaqueTexture, glowTexture, journalCardTexture } from './textures.js';
 
@@ -14,30 +13,10 @@ const MAX_W = 3.4;
 const frameMat = new THREE.MeshStandardMaterial({ color: PALETTE.frame, roughness: 0.55, metalness: 0.15 });
 const matboard = new THREE.MeshStandardMaterial({ color: 0xf2ede3, roughness: 0.95 });
 
-/* Reflection shader: mirrored art, fading away from the wall */
-function reflectionMaterial(map) {
-	return new THREE.ShaderMaterial({
-		transparent: true,
-		depthWrite: false,
-		uniforms: { uMap: { value: map }, uStrength: { value: 0.16 } },
-		vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-		fragmentShader: /* glsl */`
-			uniform sampler2D uMap; uniform float uStrength; varying vec2 vUv;
-			void main(){
-				// v runs away from the wall — sample flipped, fade with distance
-				vec3 c = texture2D(uMap, vec2(vUv.x, 1.0 - vUv.y)).rgb;
-				float fade = pow(1.0 - vUv.y, 2.2);
-				float edge = smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x);
-				gl_FragColor = vec4(c, fade * edge * uStrength);
-			}
-		`,
-	});
-}
-
-/* Build one framed piece. Returns a Group placed at the origin, facing +z. */
-function makePiece(texture, art, opts = {}) {
-	const g = new THREE.Group();
-	const img = texture.image;
+/* Work out how big a piece will be *before* building it, so the wall can be
+   laid out by real frame widths rather than by centre spacing. */
+function measurePiece(texture, opts = {}) {
+	const img = texture && texture.image;
 	const aspect = (img && img.width && img.height) ? img.width / img.height : 0.75;
 
 	let h = opts.maxH || MAX_H;
@@ -47,6 +26,14 @@ function makePiece(texture, art, opts = {}) {
 
 	const border = opts.border ?? 0.13;
 	const matW = opts.mat ?? 0.16;
+	const trim = (border + matW) * 2;
+	return { w, h, border, matW, frameW: w + trim, frameH: h + trim };
+}
+
+/* Build one framed piece. Returns a Group placed at the origin, facing +z. */
+function makePiece(texture, art, opts = {}) {
+	const g = new THREE.Group();
+	const { w, h, border, matW } = measurePiece(texture, opts);
 
 	// backing panel = the frame face
 	const panel = new THREE.Mesh(
@@ -55,11 +42,13 @@ function makePiece(texture, art, opts = {}) {
 	);
 	panel.castShadow = true;
 	panel.receiveShadow = true;
+	panel.name = 'frame';
 	g.add(panel);
 
 	// mat board just inside the frame
 	const mat = new THREE.Mesh(new THREE.PlaneGeometry(w + matW * 2, h + matW * 2), matboard);
 	mat.position.z = 0.047;
+	mat.name = 'mat';
 	g.add(mat);
 
 	// the artwork itself — lit but also self-lit so it always reads
@@ -77,46 +66,111 @@ function makePiece(texture, art, opts = {}) {
 	plane.userData.art = art;
 	g.add(plane);
 
-	// picture-light pool on the wall behind
+	// Picture-light pool on the wall behind. Kept tight on pier-mounted pieces so
+	// the halo does not spill across the window glass either side.
+	const gs = opts.glowScale ?? 1;
 	const glow = new THREE.Mesh(
-		new THREE.PlaneGeometry(w * 2.1, h * 2.3),
+		new THREE.PlaneGeometry(w * 2.1 * gs, h * 2.3 * gs),
 		new THREE.MeshBasicMaterial({
 			map: glowTexture(), transparent: true, blending: THREE.AdditiveBlending,
-			depthWrite: false, opacity: 0.5, fog: true,
+			depthWrite: false, opacity: 0.5 * (gs < 1 ? 0.8 : 1), fog: true,
 		})
 	);
 	glow.position.z = -0.055;
 	glow.renderOrder = 2;
+	glow.name = 'glow';
 	g.add(glow);
 
-	// plaque, hung to the lower right
+	// Plaque. Beside the frame by default; centred underneath for pieces hung on
+	// a narrow pier, where a side plaque would run onto the window glass.
 	const plaque = new THREE.Mesh(
 		new THREE.PlaneGeometry(0.62, 0.25),
 		new THREE.MeshBasicMaterial({ map: plaqueTexture(art), transparent: true })
 	);
-	plaque.position.set(w / 2 + matW + border + 0.42, -h / 2 + 0.05, 0.05);
+	if (opts.plaquePos === 'below') {
+		plaque.position.set(0, -(h / 2 + matW + border + 0.22), 0.05);
+	} else {
+		plaque.position.set(w / 2 + matW + border + 0.42, -h / 2 + 0.05, 0.05);
+	}
+	plaque.name = 'plaque';
 	g.add(plaque);
 
 	g.userData = { art, width: w, height: h, plane };
 	return g;
 }
 
-/* Floor reflection laid in front of a wall piece */
-function makeReflection(texture, w, h) {
-	const geo = new THREE.PlaneGeometry(w, h * 0.85);
-	const m = new THREE.Mesh(geo, reflectionMaterial(texture));
-	m.rotation.x = -Math.PI / 2;
-	m.renderOrder = 3;
-	return m;
-}
-
-/* Evenly space n items across a z-range */
+/* Evenly space n items across a z-range by their centres. Fine when everything
+   is the same size — see hangByGap() for walls with mixed formats. */
 function spread(zStart, zEnd, n) {
 	if (n === 1) return [(zStart + zEnd) / 2];
 	const out = [];
 	const span = zEnd - zStart;
 	for (let i = 0; i < n; i++) out.push(zStart + (span * (i + 0.5)) / n);
 	return out;
+}
+
+/* Hang a run of pieces with an equal gap between neighbours — the way work is
+   actually hung. Even centre spacing bunches wide landscapes against their
+   neighbours while leaving holes around narrow portraits, because the frames
+   are not the same width. Takes the frame widths, returns centre positions. */
+function hangByGap(zStart, zEnd, widths) {
+	const n = widths.length;
+	if (!n) return [];
+	const span = Math.abs(zStart - zEnd);
+	const total = widths.reduce((a, b) => a + b, 0);
+	const gap = (span - total) / (n + 1);          // equal gaps, including the ends
+	const dir = Math.sign(zEnd - zStart) || -1;    // the hall runs toward -z
+
+	const out = [];
+	let cursor = gap;                              // distance travelled from zStart
+	for (const w of widths) {
+		out.push(zStart + dir * (cursor + w / 2));
+		cursor += w + gap;
+	}
+	out.gap = gap;
+	return out;
+}
+
+/* The window wall can only take art on the solid piers *between* openings.
+   Returns the centre of every pier falling inside a wing's z-range. */
+function pierCentres(zStart, zEnd) {
+	const out = [];
+	for (let i = 0; i < WINDOWS.count - 1; i++) {
+		const pc = windowZ(i) - WINDOWS.spacing / 2;
+		if (pc <= zStart && pc >= zEnd) out.push(pc);
+	}
+	return out;
+}
+
+/* Widest a piece may be on a pier, leaving a margin either side of the glass */
+const PIER_WIDTH = WINDOWS.spacing - WINDOWS.width;         // 4.8 m
+const PIER_ART_MAX_W = PIER_WIDTH - 1.6;                    // image, before frame
+
+/* A journal entry hangs as a unit: the plate, then its reading card.
+   The gap inside a pair is kept well under the gap between pairs so the two
+   read as one exhibit rather than as separate items. */
+const JOURNAL_CARD_W = 1.3;
+const JOURNAL_CARD_GAP = 0.28;
+
+/* Breathing room a wall must keep between neighbouring frames. Wide landscape
+   formats would otherwise fill a wing and leave the run feeling crowded, so a
+   run that cannot make this gap is scaled down until it can. */
+const MIN_GAP = 0.9;
+
+/* How much to shrink a run so it hangs with at least MIN_GAP between frames.
+   Frame trim is a fixed border, so the image widths solve directly:
+       span = k·Σw + n·trim + gap·(n + 1)                                    */
+function fitScale(textures, arts, opts, zStart, zEnd, extraPerItem = 0) {
+	const n = arts.length;
+	if (!n) return 1;
+	const span = Math.abs(zStart - zEnd);
+	const measured = arts.map(a => measurePiece(textures.get(a.src), opts));
+	const trim = measured[0].frameW - measured[0].w;
+	const sumW = measured.reduce((s, m) => s + m.w, 0);
+
+	const budget = span - MIN_GAP * (n + 1) - n * (trim + extraPerItem);
+	if (sumW <= budget) return 1;                    // already roomy enough
+	return Math.max(0.5, budget / sumW);             // never shrink to nothing
 }
 
 /* ============================================================
@@ -136,41 +190,69 @@ export function hangExhibit(textures) {
 		piece.rotation.y = rotY;
 		group.add(piece);
 		pickables.push(piece.userData.plane);
-		addReflection(tex, piece.userData.width, piece.userData.height, x, z, rotY);
 		return piece;
 	}
 
-	/* Lay the mirrored image on the floor in front of the piece.
-	   The plane's local +v must point away from the wall, so it is laid
-	   flat about X and then spun about world Y — hence the YXZ order. */
-	function addReflection(tex, width, height, x, z, rotY) {
-		const refl = makeReflection(tex, width, height);
-		const nx = Math.sin(rotY), nz = Math.cos(rotY);   // outward normal
-		const out = height * 0.42;
-		refl.position.set(x + nx * out, 0.025, z + nz * out);
-		refl.rotation.order = 'YXZ';
-		refl.rotation.set(-Math.PI / 2, Math.PI + rotY, 0);
-		group.add(refl);
-	}
-
-	/* ---- Wing 1 & 2: side walls ---- */
+	/* ---- Side walls ---- */
 	SECTIONS.forEach(sec => {
 		const data = ARTWORKS[sec.id];
 		if (!data) return;
 
-		if (data.right && data.right.length) {
-			const zs = spread(sec.zStart, sec.zEnd, data.right.length);
-			data.right.forEach((art, i) => {
+		// The window wall only has room on the piers, so anything that does not
+		// fit rolls over onto the solid wall opposite rather than covering glass.
+		const piers    = pierCentres(sec.zStart, sec.zEnd);
+		const leftArt  = (data.left || []).slice(0, piers.length);
+		const overflow = (data.left || []).slice(piers.length);
+		const rightArt = [...(data.right || []), ...overflow];
+		if (overflow.length) {
+			console.info(`[exhibit] ${sec.id}: ${overflow.length} piece(s) moved to the solid wall — only ${piers.length} piers between windows.`);
+		}
+
+		if (rightArt.length) {
+			const isJournal = sec.id === 'journal';
+			// Journal opts keep a plate narrow enough to sit beside its card
+			const base = isJournal ? { maxH: 1.9, maxW: 2.4, plaquePos: 'below' } : {};
+
+			// shrink the run only if it would otherwise hang tighter than MIN_GAP
+			const extra = isJournal ? JOURNAL_CARD_GAP + JOURNAL_CARD_W : 0;
+			const k = fitScale(textures, rightArt, base, sec.zStart, sec.zEnd, extra);
+			const opts = k === 1 ? base : {
+				...base,
+				maxH: (base.maxH || MAX_H) * k,
+				maxW: (base.maxW || MAX_W) * k,
+			};
+
+			// measure every frame first, then hang them with one consistent gap
+			const widths = rightArt.map(art => {
+				const m = measurePiece(textures.get(art.src), opts);
+				// a journal unit is the plate plus its reading card
+				return isJournal ? m.frameW + JOURNAL_CARD_GAP + JOURNAL_CARD_W : m.frameW;
+			});
+			const zs = hangByGap(sec.zStart, sec.zEnd, widths);
+
+			rightArt.forEach((art, i) => {
 				// right wall faces -x, so rotate to look back across the hall
-				place(art, W - 0.28, zs[i], -Math.PI / 2);
+				if (isJournal) {
+					const unitW = widths[i];
+					const plateW = unitW - JOURNAL_CARD_GAP - JOURNAL_CARD_W;
+					// unit centre -> plate on the near side, card just beyond it
+					const unitStart = zs[i] + unitW / 2;                 // travelling toward -z
+					const plateZ = unitStart - plateW / 2;
+					const cardZ = unitStart - plateW - JOURNAL_CARD_GAP - JOURNAL_CARD_W / 2;
+					place(art, W - 0.28, plateZ, -Math.PI / 2, opts);
+					addJournalCard(art, cardZ);
+				} else {
+					// must be the same opts the width was measured with
+					place(art, W - 0.28, zs[i], -Math.PI / 2, opts);
+				}
 			});
 		}
-		if (data.left && data.left.length) {
-			const zs = spread(sec.zStart, sec.zEnd, data.left.length);
-			data.left.forEach((art, i) => {
-				place(art, -W + 0.28, zs[i], Math.PI / 2, { maxH: 1.9 });
-			});
-		}
+
+		leftArt.forEach((art, i) => {
+			place(art, -W + 0.28, piers[i], Math.PI / 2,
+				{ maxH: 1.75, maxW: PIER_ART_MAX_W, plaquePos: 'below', glowScale: 0.62 });
+		});
+
 		if (data.feature && data.feature.length) {
 			// on the freestanding wall at z = -49, facing the visitor walking in
 			data.feature.forEach(art => {
@@ -179,24 +261,23 @@ export function hangExhibit(textures) {
 		}
 	});
 
-	/* ---- Journal reading cards, mounted opposite their plate ---- */
-	const jr = ARTWORKS.journal.right;
-	const jz = spread(SECTIONS[2].zStart, SECTIONS[2].zEnd, jr.length);
-	jr.forEach((entry, i) => {
+	/* A readable wall card, hung on the solid wall beside its plate */
+	function addJournalCard(entry, z) {
 		const cardTex = journalCardTexture(entry);
 		const card = new THREE.Mesh(
-			new THREE.PlaneGeometry(1.5, 2.0),
+			new THREE.PlaneGeometry(1.3, 1.73),
 			new THREE.MeshStandardMaterial({
 				map: cardTex, roughness: 0.95,
 				emissive: 0xffffff, emissiveMap: cardTex, emissiveIntensity: 0.22,
 			})
 		);
-		card.position.set(-W + 0.3, 2.3, jz[i]);
-		card.rotation.y = Math.PI / 2;
+		card.position.set(W - 0.28, 2.45, z);
+		card.rotation.y = -Math.PI / 2;
+		card.name = 'journal-card';
 		card.userData.art = entry;
 		group.add(card);
 		pickables.push(card);
-	});
+	}
 
 	/* ---- The finale on the end wall ---- */
 	const finTex = textures.get(FINALE.src);
@@ -205,10 +286,6 @@ export function hangExhibit(textures) {
 		piece.position.set(0, 3.0, HALL.zEnd + 0.32);
 		group.add(piece);
 		pickables.push(piece.userData.plane);
-
-		const refl = makeReflection(finTex, piece.userData.width, piece.userData.height);
-		refl.position.set(0, 0.025, HALL.zEnd + 0.32 + piece.userData.height * 0.45);
-		group.add(refl);
 	}
 
 	return { group, pickables };

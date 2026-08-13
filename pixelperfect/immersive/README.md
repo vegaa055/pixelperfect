@@ -19,6 +19,40 @@ A single large print closes the hall on the end wall at z = −96.
 Tall windows run down the **left** wall every 8 m. Everything about the lighting
 follows from that one decision.
 
+### Spacing rule
+
+Work is hung by **equal gaps between frames**, not by equal centre spacing.
+Centre spacing only looks even when every piece is the same width: the Portfolio
+wing is all portrait paintings so it reads fine either way, but the Gallery mixes
+wide landscapes with portraits, and even centres left the landscapes crowding
+their neighbours while the portraits floated in space.
+
+`measurePiece()` therefore computes a frame's size *before* it is built, so
+`hangByGap()` can lay out a run from real widths. A wall that still cannot make
+`MIN_GAP` (0.9 m) scales its run down until it can — the frame trim is a fixed
+border, so the scale factor solves directly rather than by iterating:
+
+```
+span = k·Σw + n·trim + gap·(n + 1)
+```
+
+Anything measured with one set of options **must be built with the same set**,
+or the layout and the geometry disagree and the gaps drift.
+
+### Hanging rule
+
+The window wall can only take art on the solid **piers between** openings, so
+`artwork.js` snaps those pieces to computed pier centres rather than spacing them
+evenly — even spacing lands frames on the glass. Pier-mounted pieces are capped
+to the pier width, wear their plaque underneath instead of beside, and use a
+tighter light halo so it does not spill across the window.
+
+Each wing has three piers except the Journal, which has two. Anything that does
+not fit rolls over onto the solid wall opposite rather than covering glass, so
+the manifest can grow without anyone re-deriving the geometry. The Journal's
+reading cards therefore hang next to their plates on the solid wall, which also
+reads better — image and text side by side.
+
 ## How the light works
 
 The sun direction is defined once in `config.js` and shared by every effect, so
@@ -57,7 +91,7 @@ up and swell slightly, which is what actually sells the effect.
 | `config.js` | Hall dimensions, window layout, sun vector, palette, quality tiers |
 | `exhibit-data.js` | The manifest — what hangs where, with titles and wall text |
 | `architecture.js` | Floor, ceiling, walls pierced by windows, archways, benches |
-| `artwork.js` | Frames, plaques, picture-light glow, floor reflections, texture loading |
+| `artwork.js` | Frames, plaques, picture-light glow, wall layout, texture loading |
 | `atmosphere.js` | Light shafts, dust motes, floor light pools |
 | `controls.js` | Pointer-lock WASD, touch controls, collision, drag-look fallback |
 | `textures.js` | Procedural plaster/floor/glow, and canvas-rendered plaques and signage |
@@ -93,7 +127,16 @@ JSON. Safe to delete — nothing in the exhibit imports them.
 
 - `_verify.html` — builds the scene, renders four viewpoints to a render target
   and reads the pixels back, asserting that the custom GLSL compiles, textures
-  decode, beams are brighter than their surroundings and no view is black.
+  decode, beams are brighter than their surroundings and no view is black. It
+  also checks geometrically that nothing solid overlaps a window. That check
+  calls `scene.updateMatrixWorld(true)` first — nothing has rendered at that
+  point, so without it every `Box3` is computed in local space and the check
+  passes vacuously; a companion assertion on the number of meshes actually
+  inspected keeps that failure mode from coming back silently. Finally it
+  measures the gap between neighbouring works on each solid wall and asserts they
+  are uniform. A Journal plate and its reading card are one exhibit, so anything
+  closer than 0.45 m is merged into a single unit before measuring — otherwise
+  the deliberately tight gap inside a pair reads as an uneven run.
 - `_verify-walk.html` — simulates a visitor walking the intended route, checking
   every wing is reachable, walls and benches are solid, archways are passable and
   the visitor can never leave the building.

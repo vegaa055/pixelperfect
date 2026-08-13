@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import { buildHall }                    from './js/architecture.js';
 import { hangExhibit, loadTextures }    from './js/artwork.js';
 import { createLightShafts, createDust, createFloorPools } from './js/atmosphere.js';
-import { HALL, PALETTE, SECTIONS }      from './js/config.js';
+import { HALL, PALETTE, SECTIONS, WINDOWS, windowZ } from './js/config.js';
 
 const shaderErrors = [];
 const origErr = console.error;
@@ -85,6 +85,81 @@ try {
 	note('artwork meshes', countMeshes(art));
 	note('pickables', pickables.length);
 
+	// ---- nothing solid may cover a window ----
+	// Nothing has rendered yet, so world matrices are still stale; without this
+	// every Box3 comes back in local space and the checks below pass vacuously.
+	scene.updateMatrixWorld(true);
+
+	const SOLID = new Set(['frame', 'mat', 'artwork', 'plaque', 'journal-card']);
+	const winZs = [];
+	for (let i = 0; i < WINDOWS.count; i++) winZs.push(windowZ(i));
+	const halfWin = WINDOWS.width / 2;
+	const clashes = [];
+	let inspected = 0;                       // guards against a vacuous pass
+	art.traverse(o => {
+		if (!o.isMesh || !SOLID.has(o.name)) return;
+		const b = new THREE.Box3().setFromObject(o);
+		if (b.min.x > -HALL.halfWidth + 1.2) return;                 // not on the window wall
+		inspected++;
+		if (b.max.y < WINDOWS.sill || b.min.y > WINDOWS.sill + WINDOWS.height) return;
+		for (const wz of winZs) {
+			if (b.max.z > wz - halfWin && b.min.z < wz + halfWin) {
+				clashes.push(`${o.name} z[${b.min.z.toFixed(2)}..${b.max.z.toFixed(2)}] over window @${wz}`);
+				break;
+			}
+		}
+	});
+	note('window-wall meshes inspected', inspected);
+	note('art covering glass', clashes.length ? clashes.join('; ') : 'none');
+
+	// how much clearance does each pier-mounted piece actually have?
+	let tightest = 99;
+	art.traverse(o => {
+		if (!o.isMesh || o.name !== 'frame') return;
+		const b = new THREE.Box3().setFromObject(o);
+		if (b.min.x > -HALL.halfWidth + 1.2) return;
+		for (const wz of winZs) {
+			const gapA = (wz - halfWin) - b.max.z, gapB = b.min.z - (wz + halfWin);
+			for (const g of [gapA, gapB]) if (g > 0) tightest = Math.min(tightest, g);
+		}
+	});
+	note('tightest pier clearance', tightest === 99 ? 'n/a' : tightest.toFixed(2) + ' m');
+
+	// ---- gaps between neighbouring works on the solid wall ----
+	// Even *centre* spacing bunches mixed formats; these gaps prove even hanging.
+	// In the Journal a plate and its card are one exhibit, so they are merged
+	// into a single unit before measuring — the tight gap inside a pair is
+	// deliberate and must not be read as an uneven run.
+	const PAIR_MAX = 0.45;                     // anything closer is the same unit
+	const wallRuns = {};
+	art.traverse(o => {
+		if (!o.isMesh || (o.name !== 'frame' && o.name !== 'journal-card')) return;
+		const b = new THREE.Box3().setFromObject(o);
+		if (b.max.x < HALL.halfWidth - 1.2) return;          // solid (right) wall only
+		const wing = SECTIONS.find(s => b.max.z <= s.zStart + 1 && b.min.z >= s.zEnd - 1);
+		if (!wing) return;
+		(wallRuns[wing.id] ||= []).push({ min: b.min.z, max: b.max.z });
+	});
+
+	const gapReport = {};
+	for (const [id, boxes] of Object.entries(wallRuns)) {
+		boxes.sort((p, q) => q.max - p.max);                 // order along the walk (-z)
+
+		// merge anything sitting within PAIR_MAX into one unit
+		const units = [];
+		for (const b of boxes) {
+			const last = units[units.length - 1];
+			if (last && last.min - b.max <= PAIR_MAX) last.min = Math.min(last.min, b.min);
+			else units.push({ ...b });
+		}
+
+		const gaps = [];
+		for (let i = 1; i < units.length; i++) gaps.push(+(units[i - 1].min - units[i].max).toFixed(2));
+		const lo = Math.min(...gaps), hi = Math.max(...gaps);
+		gapReport[id] = { works: boxes.length, units: units.length, gaps, spread: +(hi - lo).toFixed(2), min: lo };
+		note(`${id} wall`, `${units.length} units, gaps ${gaps.join(', ')} (spread ${(hi - lo).toFixed(2)} m)`);
+	}
+
 	// ---- render probes ----
 	const rt = new THREE.WebGLRenderTarget(900, 560);
 
@@ -119,6 +194,13 @@ try {
 	checks.push(['art wall renders',      c.unique > 500 && c.mean > 10]);
 	checks.push(['finale renders',        d.sd > 20 && d.mean > 6]);   // monochrome print: judge structure, not colour count
 	checks.push(['nothing all-black',     [a,b,c,d].every(x => x.nonBlack > 0.5)]);
+	checks.push(['placement check actually ran', inspected >= 12]);
+	checks.push(['no art covering a window', clashes.length === 0]);
+	checks.push(['pier art has clearance',  tightest !== 99 && tightest > 0.25]);
+	for (const [id, r] of Object.entries(gapReport)) {
+		checks.push([`${id} wall hung evenly (spread < 0.1 m)`, r.spread < 0.1]);
+		checks.push([`${id} wall keeps its minimum gap`, r.min > 0.85]);
+	}
 
 	result.checks = checks.map(([n, ok]) => `${ok ? 'PASS' : 'FAIL'}  ${n}`);
 	result.ok = checks.every(([, ok]) => ok);
